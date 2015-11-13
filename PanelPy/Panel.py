@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import statsmodels.api as sm
+from patsy import dmatrices
 
 
 class Panel:
@@ -101,6 +102,24 @@ class Panel:
         df = pd.read_csv(file)
         return Panel(df, i, t, keep_index)
 
+    def xtreg(self, formula=None, dep=None, indep=None, type='fe', robust_se=None, cluster=None):
+
+        cov_kwds = None
+        if formula:
+            if dep or indep:
+                raise ValueError('Cannot specify both formula and dep/indep lists')
+            Y, X = dmatrices(formula, self.data, return_type='dataframe')
+        cov_type = robust_se or 'nonrobust'
+
+        if cov_type == 'cluster':
+            cov_kwds = cluster or {'groups': self.data.index.labels[0]}
+
+        if type == 'fe':
+            Y = fixed_effects_transform(Y, self.i)
+            X = fixed_effects_transform(X, self.i)
+
+        return sm.OLS(Y, X).fit(cov_type=cov_type, cov_kwds=cov_kwds)
+
 
 
 class Regression:
@@ -116,36 +135,8 @@ class Regression:
         self.cluster = cluster
 
 
-def xtreg(dep, indep, panel, type='fe', robust_se=None, cluster=None):
 
-    cov_type = robust_se or 'nonrobust'
-    cov_kwds = cluster or {'groups': panel.data.index.labels[0]}
+def fixed_effects_transform(df, idx):
+    return df.groupby(level=idx).transform(lambda x: x - x.mean()) + df.mean()
 
-    if type == 'fe':
-        panel = fixed_effects_transform(dep, indep, panel)
-        return sm.OLS(panel['Y'], panel['X']).fit(cov_type=cov_type, cov_kwds=cov_kwds)
-
-def fixed_effects_transform(dep, indep, data):
-    """
-    Does stata-style fixed effects where the intercept is the average fixed effect size
-    :param dep: the name of the dependent variable
-    :param indep: the names of the independent variables
-    :param data: the data
-    :type data: Panel
-    :return:
-    """
-    grand_means = data.grand_means(dep, *indep)
-    Y = data.within(dep) + grand_means[dep]
-
-    # Build X
-    X = data.within(*indep)
-    X += np.ones(X.shape) * grand_means[indep].data
-    X = sm.add_constant(X, prepend=False)
-
-    return {'Y': Y, 'X': X}
-
-
-
-df = pd.read_csv('../Data/grunfeld.csv')
-p = Panel.from_csv('../Data/grunfeld.csv', 'FIRM', 'YEAR')
 
