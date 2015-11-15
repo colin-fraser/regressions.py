@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import statsmodels.api as sm
-from patsy import dmatrices
+from patsy.highlevel import dmatrices
 
 
 class Panel:
@@ -30,6 +30,10 @@ class Panel:
 
         self.n, self.T = len(self.data.index.levels[0]), len(self.data.index.levels[1])
         self.N = self.data.shape[0]
+
+    @property
+    def values(self):
+        return self.data.values
 
     @property
     def balanced(self):
@@ -121,22 +125,77 @@ class Panel:
         return sm.OLS(Y, X).fit(cov_type=cov_type, cov_kwds=cov_kwds)
 
 
-
-class Regression:
+class RDataFrame(pd.DataFrame):
     """
-    A regression is attached to a panel
+    A RDataFrame is a Pandas DataFrame with regression methods attached
     """
 
-    def __init__(self, formula, data, type, std_err, cluster):
-        self.formula = formula
-        self.data = data
-        self.type = type
-        self.std_err = std_err
-        self.cluster = cluster
+    def __init__(self, data, index, columns, dtype, copy):
+        """
 
+        :return:
+        """
+        super().__init__(self, data, index, columns, dtype, copy)
+
+    @property
+    def _constructor(self):
+        return RDataFrame
+
+    def regress(self, formula, *args, **kwargs):
+        return regress(self, formula, *args, **kwargs)
 
 
 def fixed_effects_transform(df, idx):
     return df.groupby(level=idx).transform(lambda x: x - x.mean()) + df.mean()
 
+robust = 'robust'
+cluster = 'cluster'
+
+
+class Regression:
+
+    def __init__(self, formula, data, *args, type='pooled', **kwargs):
+
+        self.formula = formula
+        self.data = data
+        self.type = type
+        self.cluster = False
+        self.args = args
+        self.__dict__.update(kwargs)
+        self.Y, self.X = dmatrices(formula, data)
+        self.fit = self._fit()
+        self.coefficients = dict(zip(self.X.design_info.term_names, self.fit.params))
+        self.se = dict(zip(self.X.design_info.term_names, self.fit.bse))
+
+    def _fit(self):
+        if self.type == 'pooled':
+            if robust in self.args:
+                return sm.OLS(self.Y, self.X).fit(cov_type='HC1')
+            if self.cluster:
+                cluster_variable = self.data.ix[:, self.cluster]
+                return sm.OLS(self.Y, self.X).fit(cov_type='cluster', cov_kwds={'groups': cluster_variable})
+            else:
+                return sm.OLS(self.Y, self.X).fit(cov_type='nonrobust')
+
+    @property
+    def summary(self):
+        return self.fit.summary()
+
+    def __repr__(self):
+        return self.fit.summary.__repr__()
+
+
+
+
+
+def regress(data, formula, *args, **kwargs):
+    """
+
+    :param formula:
+    :param data:
+    :param args:
+    :return:
+    """
+
+    return Regression(formula, data, *args, type='pooled', **kwargs)
 
