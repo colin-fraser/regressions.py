@@ -130,12 +130,28 @@ class RDataFrame(pd.DataFrame):
     A RDataFrame is a Pandas DataFrame with regression methods attached
     """
 
-    def __init__(self, data, index, columns, dtype, copy):
+    def __init__(self, data=None, index=None, columns=None, dtype=None, copy=False,
+                 i=None, t=None, keep_index=True):
         """
 
         :return:
         """
-        super().__init__(self, data, index, columns, dtype, copy)
+        super().__init__(data=data, index=index, columns=columns, dtype=dtype, copy=copy)
+        self.i = None
+        self.t = None
+        if i and t:
+            self.xtset(i, t, keep_index)
+
+    def xtset(self, i, t, keep_index):
+        self.i = i
+        self.t = t
+        self.index = [self[i], self[t]]
+        if not keep_index:
+            self.drop(labels=[i, t], axis=1, inplace=True)
+
+    @property
+    def is_panel(self):
+        return self.i and self.t
 
     @property
     def _constructor(self):
@@ -143,6 +159,34 @@ class RDataFrame(pd.DataFrame):
 
     def regress(self, formula, *args, **kwargs):
         return regress(self, formula, *args, **kwargs)
+
+    @classmethod
+    def from_csv(cls, path, i=None, t=None, keep_index=True, header=0, sep = ','):
+
+        data = pd.read_csv(path, sep=sep, header=header, index_col=None)
+        return RDataFrame(data=data, i=i, t=t, keep_index=keep_index)
+    
+    def xtreg(self, formula=None, dep=None, indep=None, type='fe', robust_se=None, cluster=None):
+
+        cov_kwds = None
+        if formula:
+            if dep or indep:
+                raise ValueError('Cannot specify both formula and dep/indep lists')
+            Y, X = dmatrices(formula, self.data, return_type='dataframe')
+        cov_type = robust_se or 'nonrobust'
+
+        if cov_type == 'cluster':
+            cov_kwds = cluster or {'groups': self.data.index.labels[0]}
+
+        if type == 'fe':
+            Y = fixed_effects_transform(Y, self.i)
+            X = fixed_effects_transform(X, self.i)
+
+        return sm.OLS(Y, X).fit(cov_type=cov_type, cov_kwds=cov_kwds)
+
+
+
+
 
 
 def fixed_effects_transform(df, idx):
@@ -183,6 +227,7 @@ class Regression:
 
     def __repr__(self):
         return self.fit.summary.__repr__()
+
 
 
 
