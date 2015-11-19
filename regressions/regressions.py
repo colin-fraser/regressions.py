@@ -3,73 +3,113 @@ import numpy as np
 import statsmodels.api as sm
 from patsy.highlevel import dmatrices
 
+robust = 'robust'
+cluster = 'cluster'
 
-class Panel:
+
+class RDataFrame(pd.DataFrame):
     """
-    A panel has a data frame and an index, with methods for doing panel things.
+    A RDataFrame is a Pandas DataFrame with regression methods attached
     """
 
-    def __init__(self, data, i, t, keep_index=True):
+    panel_error = TypeError('Panel variables not set. Use RDataFrame.xtset(i, t).')
+    index_error = ValueError('\'i\', \'n\', \'N\', \'t\' and \'T\' are reserved column'
+                             ' names in RDataFrames')
+
+    def __init__(self, data=None, index=None, columns=None, dtype=None, copy=False,
+                 i=None, t=None, keep_index=True):
         """
 
-        :type data: pd.DataFrame
-        :param data: a DataFrame
-        :param i: the individual index
-        :param t: the time index
-        :param keep_index: should the indices stay in the data?
-        :return: a new Panel
+        :return:
         """
+        super().__init__(data=data, index=index, columns=columns, dtype=dtype, copy=copy)
+        self._i = None
+        self._t = None
+        if i and t:
+            self.xtset(i, t, keep_index)
 
-        self.data = data.copy()
-        self.data.index = [data[i], data[t]]
-        self.i = i
-        self.t = t
-
+    def xtset(self, i, t, keep_index=True):
+        self._i = i
+        self._t = t
+        # noinspection PyAttributeOutsideInit,PyAttributeOutsideInit
+        self.index = [self[i], self[t]]
         if not keep_index:
-            self.data.drop([i, t], axis=1, inplace=True)
-
-        self.n, self.T = len(self.data.index.levels[0]), len(self.data.index.levels[1])
-        self.N = self.data.shape[0]
+            self.drop(labels=[i, t], axis=1, inplace=True)
 
     @property
-    def values(self):
-        return self.data.values
+    def _constructor(self):
+        return RDataFrame
 
     @property
-    def balanced(self):
-        return self.N == self.n * self.T
+    def is_panel(self):
+        return self._i and self._t
 
-    def within(self, *args, values_only=False):
-        """
-        Performs the 'within transformation' on the variables chosen in *args. If no variables are selected,
-        the transformation is performed on all variables
-        :param args: the columns to be transformed
-        :param values_only: If this is true, only the matrix of values will be returned
-        :return:
-        """
-        within = lambda x: x - x.mean()
-        if not args:
-            return self.data.groupby(level=self.i).transform(within)
-        return self.data[list(args)].groupby(level=self.i).transform(within)
+    @property
+    def n(self):
+        if not self.is_panel:
+            raise self.panel_error
+        return len(self.index.levels[0])
 
-    def between(self, *args, values_only=False):
-        """
-        Performs the 'between transformation' on the variables chosen in *args. If no variables are selected,
-        the transformation is performed on all variables
-        :param args: columns to be transformed
-        :param values_only: If this is true, only the matrix of values will be returned
-        :return:
-        """
+    @property
+    def T(self):
+        if not self.is_panel:
+            raise self.panel_error
+        return len(self.index.levels[1])
 
-        if not args:
-            transformed = self.data.groupby(levels=self.t).transform(lambda x: x - x.mean())
-        else:
-            transformed = self.data[list(args)].groupby(level=self.t).transform(lambda x: x - x.mean())
+    @property
+    def i(self):
+        if not self.is_panel:
+            raise self.panel_error
+        return self._i
 
-        return transformed.values if values_only else transformed
+    @property
+    def t(self):
+        if not self.is_panel:
+            raise self.panel_error
+        return self._t
+
+    @property
+    def N(self):
+        return self.data.shape[0]
+
+    def regress(self, formula, vce='nonrobust', cluster=None):
+        """
+        Creates a pooled Regression object for this data with the formula given. For example,
+
+           dt.regress('Y~X')
+
+        will produce the same output as
+
+            regress y x
+
+        in Stata.
+
+        :param formula: the formula for the regression
+        :param vce: The Variance Covariance Estimator
+        :param cluster: The name of the column along which to cluster for standard errors
+        :return: Regression object
+        :rtype: Regression
+        """
+        # Translate "robust" to HC1, which is the stata-style robust VCE:
+        vce = 'HC1' if vce == 'robust' else vce
+        return Regression(formula, self, 'pooled', vce, cluster)
+
+    @classmethod
+    def from_csv(cls, path, i=None, t=None, keep_index=True, header=0, sep=','):
+
+        data = pd.read_csv(path, sep=sep, header=header, index_col=None)
+        return RDataFrame(data=data, i=i, t=t, keep_index=keep_index)
+
+    def xtreg(self, formula, regression_type='fe', vce='nonrobust', cluster=None):
+        if not self.is_panel:
+            raise self.panel_error
+        return Regression(formula=formula, data=self, regression_type=regression_type, vce=vce,
+                          cluster=cluster)
 
     @property
     def panel_summary(self):
+        if not self.is_panel:
+            raise TypeError('Not a panel. Run RDataFrame.xtset(i, t) to set up panel variables.')
         stats = []
         balance = 'Balanced' if self.balanced else 'Unbalanced'
         balance += ' panel.'
@@ -81,145 +121,56 @@ class Panel:
         stats.append('N = %i' % self.N)
         return '\n'.join(stats)
 
-    def __repr__(self):
-        return self.panel_summary + '\n\n' + self.data.__str__()
-
-    def __str__(self):
-        return '\n\n'.join([self.panel_summary, self.data.__str__()])
-
-    def grand_means(self, *args):
-        if not args:
-            return np.mean(self.data)
-        else:
-            return np.mean(self.data[list(args)])
-
-    @classmethod
-    def from_csv(cls, file, i, t, keep_index=True):
-        """
-
-        :param file: the file to import
-        :param i: the individual index column
-        :param t: the time index column
-        :return: data.frame
-        """
-
-        df = pd.read_csv(file)
-        return Panel(df, i, t, keep_index)
-
-    def xtreg(self, formula=None, dep=None, indep=None, type='fe', robust_se=None, cluster=None):
-
-        cov_kwds = None
-        if formula:
-            if dep or indep:
-                raise ValueError('Cannot specify both formula and dep/indep lists')
-            Y, X = dmatrices(formula, self.data, return_type='dataframe')
-        cov_type = robust_se or 'nonrobust'
-
-        if cov_type == 'cluster':
-            cov_kwds = cluster or {'groups': self.data.index.labels[0]}
-
-        if type == 'fe':
-            Y = fixed_effects_transform(Y, self.i)
-            X = fixed_effects_transform(X, self.i)
-
-        return sm.OLS(Y, X).fit(cov_type=cov_type, cov_kwds=cov_kwds)
-
-
-class RDataFrame(pd.DataFrame):
-    """
-    A RDataFrame is a Pandas DataFrame with regression methods attached
-    """
-
-    def __init__(self, data=None, index=None, columns=None, dtype=None, copy=False,
-                 i=None, t=None, keep_index=True):
-        """
-
-        :return:
-        """
-        super().__init__(data=data, index=index, columns=columns, dtype=dtype, copy=copy)
-        self.i = None
-        self.t = None
-        if i and t:
-            self.xtset(i, t, keep_index)
-
-    def xtset(self, i, t, keep_index):
-        self.i = i
-        self.t = t
-        self.index = [self[i], self[t]]
-        if not keep_index:
-            self.drop(labels=[i, t], axis=1, inplace=True)
-
-    @property
-    def is_panel(self):
-        return self.i and self.t
-
-    @property
-    def _constructor(self):
-        return RDataFrame
-
-    def regress(self, formula, *args, **kwargs):
-        return regress(self, formula, *args, **kwargs)
-
-    @classmethod
-    def from_csv(cls, path, i=None, t=None, keep_index=True, header=0, sep = ','):
-
-        data = pd.read_csv(path, sep=sep, header=header, index_col=None)
-        return RDataFrame(data=data, i=i, t=t, keep_index=keep_index)
-    
-    def xtreg(self, formula=None, dep=None, indep=None, type='fe', robust_se=None, cluster=None):
-
-        cov_kwds = None
-        if formula:
-            if dep or indep:
-                raise ValueError('Cannot specify both formula and dep/indep lists')
-            Y, X = dmatrices(formula, self.data, return_type='dataframe')
-        cov_type = robust_se or 'nonrobust'
-
-        if cov_type == 'cluster':
-            cov_kwds = cluster or {'groups': self.data.index.labels[0]}
-
-        if type == 'fe':
-            Y = fixed_effects_transform(Y, self.i)
-            X = fixed_effects_transform(X, self.i)
-
-        return sm.OLS(Y, X).fit(cov_type=cov_type, cov_kwds=cov_kwds)
-
-
-
-
-
 
 def fixed_effects_transform(df, idx):
     return df.groupby(level=idx).transform(lambda x: x - x.mean()) + df.mean()
 
-robust = 'robust'
-cluster = 'cluster'
-
 
 class Regression:
-
-    def __init__(self, formula, data, *args, type='pooled', **kwargs):
+    def __init__(self, formula, data, regression_type='pooled', vce='nonrobust', cluster=False):
 
         self.formula = formula
         self.data = data
-        self.type = type
-        self.cluster = False
-        self.args = args
-        self.__dict__.update(kwargs)
-        self.Y, self.X = dmatrices(formula, data)
+        self.regression_type = regression_type
+        self.vce = vce if not cluster else 'cluster'
+
+        if regression_type == 'fe' and vce == 'robust' and not cluster:
+            self.cluster = True
+            self.vce = 'cluster'
+        else:
+            self.cluster = cluster
+
+        self.Y, self.X = self._set_XY()
         self.fit = self._fit()
         self.coefficients = dict(zip(self.X.design_info.term_names, self.fit.params))
         self.se = dict(zip(self.X.design_info.term_names, self.fit.bse))
 
     def _fit(self):
-        if self.type == 'pooled':
-            if robust in self.args:
-                return sm.OLS(self.Y, self.X).fit(cov_type='HC1')
-            if self.cluster:
-                cluster_variable = self.data.ix[:, self.cluster]
-                return sm.OLS(self.Y, self.X).fit(cov_type='cluster', cov_kwds={'groups': cluster_variable})
-            else:
-                return sm.OLS(self.Y, self.X).fit(cov_type='nonrobust')
+
+        model = sm.OLS(self.Y, self.X)
+        if self.regression_type == 'fe':
+            model.df_resid -= (self.data.n - 1)  # Account for df loss from FE transform
+        if True is self.cluster:
+            if not self.data.is_panel:
+                raise TypeError('Cannot infer cluster variable because panel variables '
+                                'are not set. Run RDataTable.xtset(i, t) to convert data '
+                                'to Panel format.')
+            cov_kwds = {'groups': self.data[self.data.i]}
+        elif self.cluster:
+            cov_kwds = {'groups': self.data[self.cluster]}
+        else:
+            cov_kwds = None
+
+        return model.fit(cov_type=self.vce, cov_kwds=cov_kwds)
+
+    def _set_XY(self):
+        if self.regression_type == 'pooled':
+            return dmatrices(self.formula, self.data, return_type='dataframe')
+        elif self.regression_type == 'fe':
+            return dmatrices(self.formula, fixed_effects_transform(self.data, self.data.i),
+                             return_type='dataframe')
+        else:
+            raise ValueError('Regression type %s not implemented.' % self.regression_type)
 
     @property
     def summary(self):
@@ -229,18 +180,15 @@ class Regression:
         return self.fit.summary.__repr__()
 
 
-
-
-
-
-def regress(data, formula, *args, **kwargs):
+def regress(data, formula, *args, vce='nonrobust', cluster=None):
     """
 
-    :param formula:
-    :param data:
+    :param cluster: The name of the column along which to cluster standard errors
+    :param vce: Variance-Covariance Estimator.
+    :param formula: The patsy formula for the regression
+    :param data: The RDataFrame object
     :param args:
     :return:
     """
-
-    return Regression(formula, data, *args, type='pooled', **kwargs)
-
+    vce = 'HC1' if vce == 'robust' else vce
+    return Regression(formula, data, regression_type='pooled', vce=vce, cluster=cluster)
