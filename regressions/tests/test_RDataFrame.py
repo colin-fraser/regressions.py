@@ -1,3 +1,4 @@
+from __future__ import print_function
 from unittest import TestCase
 from regressions import RDataFrame
 import pandas as pd
@@ -103,6 +104,7 @@ class TestRDataFrame(TestCase):
         r = rdf.regress(f, cluster='FIRM')
         self.assertEqual(r.vce, 'cluster')
         with self.assertRaises(TypeError):
+            # noinspection PyUnusedLocal
             r = rdf.regress(f, cluster=True)
         rdf2 = rdf.copy(deep=True)
         rdf2.xtset('FIRM', 'YEAR')
@@ -118,4 +120,15 @@ class TestRDataFrame(TestCase):
 
         for k in ['F', 'C', 'Intercept']:
             self.assertAlmostEqual(r.se[k], stata_results['se'][k], places=5)
+
+    def test_properties(self):
+        rdf = self.setup_rdf()
+        rdf.xtset('FIRM', 'YEAR')
+        p = rdf.panel_attributes
+        self.assertEqual(p.i, 'FIRM')
+        self.assertEqual(p.t, 'YEAR')
+        self.assertEqual(p.n, 10)
+        self.assertEqual(p.T, 20)
+        self.assertEqual(p.N, 200)
+        self.assertTrue(rdf.balanced)
 

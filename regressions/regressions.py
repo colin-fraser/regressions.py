@@ -1,10 +1,39 @@
 import pandas as pd
-import numpy as np
 import statsmodels.api as sm
 from patsy.highlevel import dmatrices
 
-robust = 'robust'
-cluster = 'cluster'
+panel_error = TypeError('Panel variables not set. Use RDataFrame.xtset(i, t).')
+index_error = ValueError('\'i\', \'n\', \'N\', \'t\' and \'T\' are reserved column'
+                         ' names in RDataFrames')
+
+
+class PanelAttributes:
+    def __init__(self, data):
+        """
+
+        :type data: RDataFrame
+        :param data:
+        :return:
+        """
+        self.i = data.i
+        self.t = data.t
+        self.n = len(data.index.levels[0])
+        self.T = len(data.index.levels[1])
+        self.N = data.shape[0]
+        self.K = data.shape[1]
+
+    def __repr__(self):
+        attrs = ['i', 't', 'n', 'T', 'N', 'K']
+        meaning = ['individual index', 'time index', 'number of individuals', 'number of time'
+                                                                              'periods',
+                   'total number of observations', 'width of data matrix']
+        values = [self.i, self.t, self.n, self.T, self.N, self.K]
+        return pd.DataFrame(dict(attribute=attrs, meaning=meaning, value=values)).to_string(
+            index=False)
+
+    @property
+    def balanced(self):
+        return self.N == self.n * self.T
 
 
 class RDataFrame(pd.DataFrame):
@@ -12,9 +41,8 @@ class RDataFrame(pd.DataFrame):
     A RDataFrame is a Pandas DataFrame with regression methods attached
     """
 
-    panel_error = TypeError('Panel variables not set. Use RDataFrame.xtset(i, t).')
-    index_error = ValueError('\'i\', \'n\', \'N\', \'t\' and \'T\' are reserved column'
-                             ' names in RDataFrames')
+    def _constructor_expanddim(self):
+        pass
 
     def __init__(self, data=None, index=None, columns=None, dtype=None, copy=False,
                  i=None, t=None, keep_index=True):
@@ -28,6 +56,10 @@ class RDataFrame(pd.DataFrame):
         if i and t:
             self.xtset(i, t, keep_index)
 
+    @property
+    def _constructor(self):
+        return RDataFrame
+
     def xtset(self, i, t, keep_index=True):
         self._i = i
         self._t = t
@@ -37,42 +69,50 @@ class RDataFrame(pd.DataFrame):
             self.drop(labels=[i, t], axis=1, inplace=True)
 
     @property
-    def _constructor(self):
-        return RDataFrame
+    def is_panel(self):
+        return bool(self._i and self._t)
 
     @property
-    def is_panel(self):
-        return self._i and self._t
+    def panel_attributes(self):
+        self.check_panel()
+        return {
+            'n': len(self.index.levels[0]),
+            'T': len(self.index.levels[1]),
+
+        }
+
+    @property
+    def panel_attributes(self):
+        self.check_panel()
+        return PanelAttributes(self)
 
     @property
     def n(self):
-        if not self.is_panel:
-            raise self.panel_error
+        self.check_panel()
         return len(self.index.levels[0])
 
+    # noinspection PyPep8Naming
     @property
     def T(self):
-        if not self.is_panel:
-            raise self.panel_error
+        self.check_panel()
         return len(self.index.levels[1])
 
     @property
     def i(self):
-        if not self.is_panel:
-            raise self.panel_error
+        self.check_panel()
         return self._i
 
     @property
     def t(self):
-        if not self.is_panel:
-            raise self.panel_error
+        self.check_panel()
         return self._t
 
+    # noinspection PyPep8Naming
     @property
     def N(self):
         return self.data.shape[0]
 
-    def regress(self, formula, vce='nonrobust', cluster=None):
+    def regress(self, formula, vce='nonrobust', cluster=None, verbose=True):
         """
         Creates a pooled Regression object for this data with the formula given. For example,
 
@@ -84,6 +124,7 @@ class RDataFrame(pd.DataFrame):
 
         in Stata.
 
+        :param verbose: Should a summary be printed on calling?
         :param formula: the formula for the regression
         :param vce: The Variance Covariance Estimator
         :param cluster: The name of the column along which to cluster for standard errors
@@ -92,29 +133,44 @@ class RDataFrame(pd.DataFrame):
         """
         # Translate "robust" to HC1, which is the stata-style robust VCE:
         vce = 'HC1' if vce == 'robust' else vce
-        return Regression(formula, self, 'pooled', vce, cluster)
+        result = Regression(formula, self, 'pooled', vce, cluster)
+        if verbose:
+            print(result.summary)
+        return result
 
+    # noinspection PyMethodOverriding
     @classmethod
     def from_csv(cls, path, i=None, t=None, keep_index=True, header=0, sep=','):
 
         data = pd.read_csv(path, sep=sep, header=header, index_col=None)
         return RDataFrame(data=data, i=i, t=t, keep_index=keep_index)
 
-    def xtreg(self, formula, regression_type='fe', vce='nonrobust', cluster=None):
+    def xtreg(self, formula, regression_type='fe', vce='nonrobust', cluster=None, verbose=True):
+        self.check_panel()
+        result = Regression(formula=formula, data=self, regression_type=regression_type, vce=vce,
+                            cluster=cluster)
+        if verbose:
+            print(result.summary)
+        return result
+
+    @property
+    def balanced(self):
+        self.check_panel()
+        return self.panel_attributes.balanced
+
+    def check_panel(self):
         if not self.is_panel:
-            raise self.panel_error
-        return Regression(formula=formula, data=self, regression_type=regression_type, vce=vce,
-                          cluster=cluster)
+            raise panel_error
 
     @property
     def panel_summary(self):
         if not self.is_panel:
-            raise TypeError('Not a panel. Run RDataFrame.xtset(i, t) to set up panel variables.')
+            raise panel_error
         stats = []
         balance = 'Balanced' if self.balanced else 'Unbalanced'
         balance += ' panel.'
         stats.append(balance)
-        stats.append('Group variable: %s' % self.i)
+        stats.append('Group variable: %s' % self.panel_attributes)
         stats.append('Time variable: %s' % self.t)
         stats.append('n = %i' % self.n)
         stats.append('T = %i' % self.T)
@@ -163,6 +219,7 @@ class Regression:
 
         return model.fit(cov_type=self.vce, cov_kwds=cov_kwds)
 
+    # noinspection PyPep8Naming
     def _set_XY(self):
         if self.regression_type == 'pooled':
             return dmatrices(self.formula, self.data, return_type='dataframe')
@@ -180,14 +237,13 @@ class Regression:
         return self.fit.summary.__repr__()
 
 
-def regress(data, formula, *args, vce='nonrobust', cluster=None):
+def regress(data, formula, vce='nonrobust', cluster=None):
     """
 
     :param cluster: The name of the column along which to cluster standard errors
     :param vce: Variance-Covariance Estimator.
     :param formula: The patsy formula for the regression
     :param data: The RDataFrame object
-    :param args:
     :return:
     """
     vce = 'HC1' if vce == 'robust' else vce
