@@ -23,13 +23,10 @@ class PanelAttributes:
         self.K = data.shape[1]
 
     def __repr__(self):
-        attrs = ['i', 't', 'n', 'T', 'N', 'K']
-        meaning = ['individual index', 'time index', 'number of individuals', 'number of time'
-                                                                              'periods',
-                   'total number of observations', 'width of data matrix']
+        attrs = ['i', 't', 'n', 'T', 'N', 'Width']
         values = [self.i, self.t, self.n, self.T, self.N, self.K]
-        return pd.DataFrame(dict(attribute=attrs, meaning=meaning, value=values)).to_string(
-            index=False)
+        return '%s Panel.' % {True: 'Balanced', False: 'Unbalanced'}[self.balanced] + '\n' + \
+               pd.DataFrame(dict(attribute=attrs, value=values)).to_string(index=False)
 
     @property
     def balanced(self):
@@ -67,19 +64,11 @@ class RDataFrame(pd.DataFrame):
         self.index = [self[i], self[t]]
         if not keep_index:
             self.drop(labels=[i, t], axis=1, inplace=True)
+        print(self.panel_attributes)
 
     @property
     def is_panel(self):
         return bool(self._i and self._t)
-
-    @property
-    def panel_attributes(self):
-        self.check_panel()
-        return {
-            'n': len(self.index.levels[0]),
-            'T': len(self.index.levels[1]),
-
-        }
 
     @property
     def panel_attributes(self):
