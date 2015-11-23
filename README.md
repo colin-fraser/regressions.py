@@ -127,6 +127,7 @@ This is a package for easily performing regression analysis in Python. All the h
     
     #Fixed effects with "robust" (HC1) standard errors. Defaults to clustering on the 'i' variable.
     grunfeld.xtreg('I ~ F + C', 'fe', 'robust')
+    
     #                             OLS Regression Results                            
     # ==============================================================================
     # Dep. Variable:                      I   R-squared:                       0.767
