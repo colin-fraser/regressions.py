@@ -1,3 +1,4 @@
+from __future__ import print_function
 from unittest import TestCase
 from regressions import RDataFrame
 import pandas as pd
