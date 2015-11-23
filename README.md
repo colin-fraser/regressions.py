@@ -4,6 +4,7 @@ This is a package for easily performing regression analysis in Python. All the h
 ##Examples
 ```python
     from regressions import RDataFrame
+    # RDataFrame subclasses the pandas DataFrame and attaches regression methods such as regress and xtreg.
     
     grunfeld = RDataFrame.from_csv('regressions/Data/grunfeld.csv')
     grunfeld.head()
