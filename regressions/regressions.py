@@ -1,6 +1,7 @@
 import pandas as pd
 import statsmodels.api as sm
 from patsy.highlevel import dmatrices
+import numpy as np
 
 panel_error = TypeError('Panel variables not set. Use RDataFrame.xtset(i, t).')
 index_error = ValueError('\'i\', \'n\', \'N\', \'t\' and \'T\' are reserved column'
@@ -76,30 +77,12 @@ class RDataFrame(pd.DataFrame):
         return PanelAttributes(self)
 
     @property
-    def n(self):
-        self.check_panel()
-        return len(self.index.levels[0])
-
-    # noinspection PyPep8Naming
-    @property
-    def T(self):
-        self.check_panel()
-        return len(self.index.levels[1])
-
-    @property
     def i(self):
-        self.check_panel()
         return self._i
 
     @property
     def t(self):
-        self.check_panel()
         return self._t
-
-    # noinspection PyPep8Naming
-    @property
-    def N(self):
-        return self.data.shape[0]
 
     def regress(self, formula, vce='nonrobust', cluster=None, verbose=True):
         """
@@ -168,11 +151,29 @@ class RDataFrame(pd.DataFrame):
 
 
 def fixed_effects_transform(df, idx):
-    return df.groupby(level=idx).transform(lambda x: x - x.mean()) + df.mean()
+    """
+    :type df: pd.DataFrame
+    :param df:
+    :param idx:
+    :return:
+    """
+    df2 = df.groupby(level=idx).transform(lambda x: x - np.mean(x))
+    return df2 + df.mean()
 
 
 class Regression:
     def __init__(self, formula, data, regression_type='pooled', vce='nonrobust', cluster=False):
+        """
+
+        :type data: RDataFrame
+        :param formula:
+        :param data:
+        :param regression_type:
+        :param vce:
+        :param cluster:
+        :return:
+
+        """
 
         self.formula = formula
         self.data = data
@@ -187,14 +188,14 @@ class Regression:
 
         self.Y, self.X = self._set_XY()
         self.fit = self._fit()
-        self.coefficients = dict(zip(self.X.design_info.term_names, self.fit.params))
-        self.se = dict(zip(self.X.design_info.term_names, self.fit.bse))
+        self.coefficients = dict(zip(self.X.columns, self.fit.params))
+        self.se = dict(zip(self.X.columns, self.fit.bse))
 
     def _fit(self):
 
         model = sm.OLS(self.Y, self.X)
         if self.regression_type == 'fe':
-            model.df_resid -= (self.data.n - 1)  # Account for df loss from FE transform
+            model.df_resid -= (self.data.panel_attributes.n - 1)  # Account for df loss from FE transform
         if True is self.cluster:
             if not self.data.is_panel:
                 raise TypeError('Cannot infer cluster variable because panel variables '
@@ -213,8 +214,11 @@ class Regression:
         if self.regression_type == 'pooled':
             return dmatrices(self.formula, self.data, return_type='dataframe')
         elif self.regression_type == 'fe':
-            return dmatrices(self.formula, fixed_effects_transform(self.data, self.data.i),
-                             return_type='dataframe')
+            idx = self.data.i
+            Y, X = dmatrices(self.formula, self.data, return_type='dataframe')
+            Y = fixed_effects_transform(Y, idx)
+            X = fixed_effects_transform(X, idx)
+            return Y, X
         else:
             raise ValueError('Regression type %s not implemented.' % self.regression_type)
 
