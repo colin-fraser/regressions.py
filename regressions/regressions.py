@@ -2,6 +2,9 @@ import pandas as pd
 import statsmodels.api as sm
 from patsy.highlevel import dmatrices
 import numpy as np
+from collections import OrderedDict
+from itertools import chain
+from tabulate import tabulate
 
 panel_error = TypeError('Panel variables not set. Use RDataFrame.xtset(i, t).')
 index_error = ValueError('\'i\', \'n\', \'N\', \'t\' and \'T\' are reserved column'
@@ -65,7 +68,6 @@ class RDataFrame(pd.DataFrame):
         self.index = [self[i], self[t]]
         if not keep_index:
             self.drop(labels=[i, t], axis=1, inplace=True)
-        print(self.panel_attributes)
 
     @property
     def is_panel(self):
@@ -136,18 +138,7 @@ class RDataFrame(pd.DataFrame):
 
     @property
     def panel_summary(self):
-        if not self.is_panel:
-            raise panel_error
-        stats = []
-        balance = 'Balanced' if self.balanced else 'Unbalanced'
-        balance += ' panel.'
-        stats.append(balance)
-        stats.append('Group variable: %s' % self.panel_attributes)
-        stats.append('Time variable: %s' % self.t)
-        stats.append('n = %i' % self.n)
-        stats.append('T = %i' % self.T)
-        stats.append('N = %i' % self.N)
-        return '\n'.join(stats)
+        return str(self.panel_attributes)
 
 
 def fixed_effects_transform(df, idx):
@@ -188,14 +179,16 @@ class Regression:
 
         self.Y, self.X = self._set_XY()
         self.fit = self._fit()
-        self.coefficients = dict(zip(self.X.columns, self.fit.params))
-        self.se = dict(zip(self.X.columns, self.fit.bse))
+        self.coefficients = OrderedDict(zip(self.X.columns, self.fit.params))
+        self.se = OrderedDict(zip(self.X.columns, self.fit.bse))
+        self.p_values = OrderedDict(zip(self.X.columns, self.fit.pvalues))
 
     def _fit(self):
 
         model = sm.OLS(self.Y, self.X)
         if self.regression_type == 'fe':
-            model.df_resid -= (self.data.panel_attributes.n - 1)  # Account for df loss from FE transform
+            model.df_resid -= (
+            self.data.panel_attributes.n - 1)  # Account for df loss from FE transform
         if True is self.cluster:
             if not self.data.is_panel:
                 raise TypeError('Cannot infer cluster variable because panel variables '
@@ -228,6 +221,63 @@ class Regression:
 
     def __repr__(self):
         return self.fit.summary.__repr__()
+
+
+class RegressionTable:
+    def __init__(self, regressions, coefficient_names=None, model_names=None):
+        """
+        :type regressions: list[Regression]
+        :param regressions:
+        :param coefficient_names: a dict mapping the coefficient names from regressions to
+        the desired pretty-print names. Make it an OrderedDict to make coefficients show up in
+        a desired order.
+        :param model_names:
+        :return:
+        """
+
+        self.regressions = regressions
+        if model_names and len(model_names) != len(regressions):
+            raise ValueError('model_names must be either None or of the same length as regressions')
+        self.model_names = model_names or ['(%i)' % (k + 1) for k in range(len(regressions))]
+        self.coefficient_names = coefficient_names
+        self.rows = self.make_rows()
+
+    def table(self, tablefmt='simple'):
+        return tabulate(self.rows, headers='firstrow', tablefmt=tablefmt)
+
+    def make_rows(self, digits=3):
+
+        ncols = len(self.regressions) + 1
+
+        rows = [self.model_names]
+        if not self.coefficient_names:
+            coefs = list(set(chain(*[r.coefficients for r in self.regressions])))
+        else:
+            coefs = list(self.coefficient_names)
+
+        for c in coefs:
+            if self.coefficient_names:
+                coef_row = [self.coefficient_names[c]]
+            else:
+                coef_row = [c]
+            se_row = [' ']
+            for r in self.regressions:
+                if c not in r.coefficients:
+                    coef_row.append(' ')
+                    se_row.append(' ')
+                else:
+                    stars = ''
+                    for p in [.05, .01, .001]:
+                        if r.p_values[c] < p:
+                            stars += '*'
+                    coef_row.append(
+                        '{coef:0.{digits}f}{stars}'.format(coef=r.coefficients[c], digits=digits,
+                                                           stars=stars))
+                    se_row.append('({coef:0.{digits}f})'.format(coef=r.se[c], digits=digits))
+            rows.append(coef_row)
+            rows.append(se_row)
+
+        return rows
 
 
 def regress(data, formula, vce='nonrobust', cluster=None):
