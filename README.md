@@ -2,6 +2,7 @@
 This is a package for easily performing regression analysis in Python. All the heavy lifting is being done by [Pandas](http://pandas.pydata.org/) and [Statsmodels](http://statsmodels.sourceforge.net/); this is just an interface that should be familiar to anyone who has used Stata, with some funny implementation details that make the output a bit more like Stata output (i.e. the fixed-effects implementation has an "intercept" term). 
 
 ##Examples
+### Regressions
 ```python
     from regressions import RDataFrame
     # RDataFrame subclasses the pandas DataFrame and attaches regression methods such 
@@ -154,3 +155,88 @@ This is a package for easily performing regression analysis in Python. All the h
   
   
 ```
+### Presenting results
+
+The `RegressionTable` object allows you to pretty-print the results from a list of different `Regression`s. It is similar to Stata's `outreg`.
+
+```python
+    r1 = grunfeld.regress('I ~ F')
+    r2 = grunfeld.regress('I ~ C')
+    r3 = grunfeld.regress('I ~ F + C')
+    
+    rtable = RegressionTable([r1, r2, r3])
+    print(rtable.table()) # by default, output is in the 'pipe' format which is readable by github markdown
+    # |           | (1)      | (2)      | (3)        |
+    # |:----------|:---------|:---------|:-----------|
+    # | C         |          | 0.477*** | 0.231***   |
+    # |           |          | (0.038)  | (0.025)    |
+    # | F         | 0.141*** |          | 0.116***   |
+    # |           | (0.006)  |          | (0.006)    |
+    # | Intercept | -6.976   | 14.236   | -42.714*** |
+    # |           | (10.273) | (15.639) | (9.512)    |
+    
+    # Headers are numbers by default, but the models can be renamed
+    rtable.model_names = ['Model 1', 'Model 2', 'Model 3']
+    print(rtable.table())
+        
+    # |           | Model 1   | Model 2   | Model 3    |
+    # |:----------|:----------|:----------|:-----------|
+    # | C         |           | 0.477***  | 0.231***   |
+    # |           |           | (0.038)   | (0.025)    |
+    # | F         | 0.141***  |           | 0.116***   |
+    # |           | (0.006)   |           | (0.006)    |
+    # | Intercept | -6.976    | 14.236    | -42.714*** |
+    # |           | (10.273)  | (15.639)  | (9.512)    |
+    
+    # coefficients can be renamed as well
+    rtable.coefficient_names = {'C': 'capital', 'F': 'value'}  # ommitting variables here omits them from the table
+    print(rtable.table())
+    
+    # |         | Model 1   | Model 2   | Model 3   |
+    # |:--------|:----------|:----------|:----------|
+    # | capital |           | 0.477***  | 0.231***  |
+    # |         |           | (0.038)   | (0.025)   |
+    # | value   | 0.141***  |           | 0.116***  |
+    # |         | (0.006)   |           | (0.006)   |
+
+```
+
+The default output is printable in markdown
+
+    |           | (1)      | (2)      | (3)        |
+    |:----------|:---------|:---------|:-----------|
+    | C         |          | 0.477*** | 0.231***   |
+    |           |          | (0.038)  | (0.025)    |
+    | F         | 0.141*** |          | 0.116***   |
+    |           | (0.006)  |          | (0.006)    |
+    | Intercept | -6.976   | 14.236   | -42.714*** |
+    |           | (10.273) | (15.639) | (9.512)    |
+
+but other options are available:
+
+```python
+    print(rtable.table(tablefmt='html'))
+    
+    # <table>
+    # <tr><th>       </th><th>Model 1  </th><th>Model 2  </th><th>Model 3  </th></tr>
+    # <tr><td>capital</td><td>         </td><td>0.477*** </td><td>0.231*** </td></tr>
+    # <tr><td>       </td><td>         </td><td>(0.038)  </td><td>(0.025)  </td></tr>
+    # <tr><td>value  </td><td>0.141*** </td><td>         </td><td>0.116*** </td></tr>
+    # <tr><td>       </td><td>(0.006)  </td><td>         </td><td>(0.006)  </td></tr>
+    # </table>
+    
+    print(rtable.table(tablefmt='latex'))
+    
+    # \begin{tabular}{llll}
+    # \hline
+    #          & Model 1   & Model 2   & Model 3   \\
+    # \hline
+    #  capital &           & 0.477***  & 0.231***  \\
+    #          &           & (0.038)   & (0.025)   \\
+    #  value   & 0.141***  &           & 0.116***  \\
+    #          & (0.006)   &           & (0.006)   \\
+    # \hline
+    # \end{tabular}
+    ```
+
+Tables are printed by the [https://pypi.python.org/pypi/tabulate](https://pypi.python.org/pypi/tabulate) package. See the tabulate documentation for more details about table formats.
