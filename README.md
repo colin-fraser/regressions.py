@@ -203,14 +203,12 @@ The `RegressionTable` object allows you to pretty-print the results from a list 
 
 The default output is readable by markdown
 
-|           | (1)      | (2)      | (3)        |
-|:----------|:---------|:---------|:-----------|
-| C         |          | 0.477*** | 0.231***   |
-|           |          | (0.038)  | (0.025)    |
-| F         | 0.141*** |          | 0.116***   |
-|           | (0.006)  |          | (0.006)    |
-| Intercept | -6.976   | 14.236   | -42.714*** |
-|           | (10.273) | (15.639) | (9.512)    |
+|         | Model 1   | Model 2   | Model 3   |
+|:--------|:----------|:----------|:----------|
+| capital |           | 0.477***  | 0.231***  |
+|         |           | (0.038)   | (0.025)   |
+| value   | 0.141***  |           | 0.116***  |
+|         | (0.006)   |           | (0.006)   |
 
 but other options are available:
 
