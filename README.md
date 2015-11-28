@@ -201,16 +201,16 @@ The `RegressionTable` object allows you to pretty-print the results from a list 
 
 ```
 
-The default output is printable in markdown
+The default output is readable by markdown
 
-    |           | (1)      | (2)      | (3)        |
-    |:----------|:---------|:---------|:-----------|
-    | C         |          | 0.477*** | 0.231***   |
-    |           |          | (0.038)  | (0.025)    |
-    | F         | 0.141*** |          | 0.116***   |
-    |           | (0.006)  |          | (0.006)    |
-    | Intercept | -6.976   | 14.236   | -42.714*** |
-    |           | (10.273) | (15.639) | (9.512)    |
+|           | (1)      | (2)      | (3)        |
+|:----------|:---------|:---------|:-----------|
+| C         |          | 0.477*** | 0.231***   |
+|           |          | (0.038)  | (0.025)    |
+| F         | 0.141*** |          | 0.116***   |
+|           | (0.006)  |          | (0.006)    |
+| Intercept | -6.976   | 14.236   | -42.714*** |
+|           | (10.273) | (15.639) | (9.512)    |
 
 but other options are available:
 
@@ -237,6 +237,6 @@ but other options are available:
     #          & (0.006)   &           & (0.006)   \\
     # \hline
     # \end{tabular}
-    ```
+```
 
 Tables are printed by the [https://pypi.python.org/pypi/tabulate](https://pypi.python.org/pypi/tabulate) package. See the tabulate documentation for more details about table formats.
