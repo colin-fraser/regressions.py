@@ -187,8 +187,8 @@ class Regression:
 
         model = sm.OLS(self.Y, self.X)
         if self.regression_type == 'fe':
-            model.df_resid -= (
-            self.data.panel_attributes.n - 1)  # Account for df loss from FE transform
+            # Account for df loss from FE transform
+            model.df_resid -= (self.data.panel_attributes.n - 1)
         if True is self.cluster:
             if not self.data.is_panel:
                 raise TypeError('Cannot infer cluster variable because panel variables '
@@ -240,15 +240,20 @@ class RegressionTable:
             raise ValueError('model_names must be either None or of the same length as regressions')
         self.model_names = model_names or ['(%i)' % (k + 1) for k in range(len(regressions))]
         self.coefficient_names = coefficient_names
-        self.rows = self.make_rows()
+        self.extra_rows = []
 
-    def table(self, tablefmt='simple'):
-        return tabulate(self.rows, headers='firstrow', tablefmt=tablefmt)
+    def table(self, tablefmt='pipe', digits=3):
+        table_rows = self.make_rows(digits=digits) + self.extra_rows
+        return tabulate(table_rows, headers='firstrow', tablefmt=tablefmt)
 
     def make_rows(self, digits=3):
+        """
+        Makes a list of lists to be rows for the table. The first entry in the list is the
+        headers, and subsequent entries form the body of the table.
 
-        ncols = len(self.regressions) + 1
-
+        :param digits: How many digits to round to in the output?
+        :return: List of lists of strings
+        """
         rows = [self.model_names]
         if not self.coefficient_names:
             coefs = list(set(chain(*[r.coefficients for r in self.regressions])))
