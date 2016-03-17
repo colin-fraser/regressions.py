@@ -143,10 +143,15 @@ class RDataFrame(pd.DataFrame):
 
 def fixed_effects_transform(df, idx):
     """
+    Does the Stata secret sauce fixed-effects transform (not an official name), which demeans
+    all the columns in df, and then adds in the "grand mean" of each. This allows for a constant 
+    term within a fixed effects regression, as well as produces correct standard errors of the
+    estimates. More detail here: 
+    http://www.stata.com/support/faqs/statistics/intercept-in-fixed-effects-model/
     :type df: pd.DataFrame
-    :param df:
-    :param idx:
-    :return:
+    :param df: DataFrame (or RDataFrame or Series) to transform.
+    :param idx: Index along which to perform the transformation
+    :return: Transformed DataFrame (or similar)
     """
     df2 = df.groupby(level=idx).transform(lambda x: x - np.mean(x))
     return df2 + df.mean()
